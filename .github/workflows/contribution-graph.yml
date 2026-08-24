@@ -1,0 +1,64 @@
+name: contribution arcade
+
+on:
+  schedule:
+    - cron: "41 3 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: contribution-arcade
+  cancel-in-progress: true
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the renderer
+        uses: actions/checkout@v4
+
+      - name: Set up node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Render the telemetry card
+        run: node scripts/render-stats.mjs "${{ github.repository_owner }}" public/stats.svg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Render pacman and breakout over the contribution grid
+        uses: abozanona/pacman-contribution-graph@main
+        with:
+          github_user_name: ${{ github.repository_owner }}
+          games: pacman,breakout
+
+      - name: Render the snake
+        uses: Platane/snk@v3
+        with:
+          github_user_name: ${{ github.repository_owner }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          outputs: |
+            snake/snake.svg?palette=github-light&color_snake=#0f9b86
+            snake/snake-dark.svg?color_snake=#26f7c7&color_dots=#0b0f14,#0e3a35,#127a6b,#1ac2a8,#26f7c7
+
+      - name: Collect the rendered frames
+        run: |
+          mkdir -p public
+          find . -path ./.git -prune -o -name '*-contribution-graph*.svg' -print -exec cp -f {} public/ \;
+          cp -f snake/*.svg public/
+          ls -la public
+          test -n "$(ls -A public)"
+
+      - name: Publish them to the output branch
+        run: |
+          cd public
+          git init -q -b output
+          git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -qm "chore(arcade): rerender from ${GITHUB_SHA::7}"
+          git push -qf "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" output
